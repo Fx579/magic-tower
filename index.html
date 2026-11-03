@@ -19,14 +19,7 @@
   .stat { display: flex; justify-content: space-between; padding: 2px 0; }
   .stat b { font-family: Consolas, monospace; }
   .v-gold { color: var(--gold); } .v-green { color: var(--green); } .v-red { color: var(--red); } .v-blue { color: var(--blue); } .v-purple { color: var(--purple); }
-  #grid { display: grid; grid-template-columns: repeat(9, 44px); gap: 1px; background: var(--line); border: 2px solid var(--line); border-radius: 6px; overflow: hidden; }
-  .cell { width: 44px; height: 44px; background: var(--panel2); display: flex; align-items: center; justify-content: center; font-size: 20px; user-select: none; position: relative; }
-  .cell.wall { background: #0b0e11; }
-  .cell.floor { background: var(--panel2); cursor: default; }
-  .cell.doorY { background: #3a3010; } .cell.doorB { background: #102a3a; } .cell.doorR { background: #3a1414; }
-  .cell.facing { outline: 2px solid var(--green); outline-offset: -2px; }
-  .cell .hpbar { position: absolute; bottom: 2px; left: 4px; right: 4px; height: 3px; background: #000; border-radius: 2px; }
-  .cell .hpbar i { display: block; height: 100%; background: var(--red); border-radius: 2px; }
+  #board { image-rendering: pixelated; image-rendering: crisp-edges; border: 2px solid var(--line); border-radius: 6px; display: block; cursor: pointer; }
   #preview { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px; min-height: 130px; font-size: 13px; }
   #preview .row { display: flex; justify-content: space-between; }
   #msg { margin-top: 8px; color: var(--gold); min-height: 20px; font-size: 13px; }
@@ -62,7 +55,7 @@
       <button id="btnRestart">重开</button>
     </div>
   </div>
-  <div id="center"><div id="grid"></div></div>
+  <div id="center"><canvas id="board" width="432" height="336"></canvas></div>
   <div id="right">
     <h1 id="floorName">1F</h1>
     <div id="preview">走向怪物或与其相邻时，这里显示这场战斗的精确结算。</div>
@@ -351,33 +344,488 @@ function lose() {
   document.getElementById("overlay").classList.add("show");
 }
 
-// ---------- 渲染 ----------
-const GLYPH = {
-  "#": "", "y": "🔑", "b": "🔑", "r": "🔑", "A": "💪", "D": "🛡", "H": "❤", "G": "💰",
-  "e": "💍", "f": "🧥", "g": "🛡", "l": "🍀", "!": "💣", "C": "❓", "S": "🧙",
-  "U": "▲", "V": "▼", "T": "◎", "Y": "🟡", "B": "🔵", "R": "🔴", "X": "👿",
-  "1": "🟢", "2": "🦇", "3": "💀", "4": "🟡", "5": "🗿", "6": "👻", "7": "🗡", "8": "🦅"
+// ---------- 像素精灵（16x16，经典魔塔风格） ----------
+const PAL = { '.':null,'k':'#0a0d10','w':'#ffffff','l':'#d8e0e8','g':'#9aa5b1','G':'#66707c',
+  'r':'#d03838','R':'#8c1e1e','o':'#e8883c','y':'#f0c040','Y':'#b8860b','b':'#3868c8','B':'#1e3c78',
+  'c':'#48c8c8','C':'#1e8080','n':'#f0c8a0','e':'#101014','p':'#a050d0','P':'#6a2f96','s':'#4cc468','S':'#1e8040',
+  'm':'#c89a5a','M':'#7a5228','d':'#3a444e','T':'#f0c040','t':'#ffd970','W':'#c8d0d8','K':'#3a424b' };
+const ART = {
+hero: [
+"................",
+".....rrrrrr.....",
+"....rrrrrrrr....",
+"...rrnnnnnnrr...",
+"...rnnnnnnnnr...",
+"...rneennneer...",
+"...rnnnnnnnnr...",
+"....nnnnnnnn....",
+"...BBBBBBBBBB...",
+"..lBBBBBBBBBBg..",
+"..lBBBBBBBBBBg..",
+"..nBBBBBBBBBBn..",
+"..nnBBBBBBBBnn..",
+"...dd......dd...",
+"...dd......dd...",
+"....kk....kk...."],
+slime: [
+"................",
+"................",
+".....ssssss.....",
+"...ssssssssss...",
+"..ssssssssssss..",
+"..swwssssssssS..",
+".swwsssssssssss.",
+".sssssssssssssS.",
+".ssseesssseeSsS.",
+".ssseesssseeSsS.",
+".SsssssssssssSS.",
+"..SSssssssssSS..",
+"...SSSSSSSSSS...",
+"................",
+"................",
+"................"],
+bat: [
+"................",
+"................",
+"................",
+"..g..........g..",
+"..gg...gg...gg..",
+"..ggg.gggg.ggg..",
+"..gggggggggggg..",
+"...gGGGGGGGGg...",
+"...GrGGGGGGrG...",
+"....GGGGGGGG....",
+".....GkGGkG.....",
+"......GGGG......",
+".......GG.......",
+"................",
+"................",
+"................"],
+skeleton: [
+"................",
+".....wwwwww.....",
+"....wwwwwwww....",
+"....weewweww....",
+"....wwwwwwww....",
+".....w.ww.w.....",
+"......wwww......",
+"...w.wwwwww.w...",
+"...w.wwwwww.w...",
+"....wwwwwwww....",
+".....w.ww.w.....",
+".....w.ww.w.....",
+"....ww..ww......",
+"...ww....ww.....",
+"................",
+"................"],
+golem: [
+"................",
+"...gggggggggg...",
+"..ggGGGGGGGGgg..",
+"..gGyyGGGGyyGg..",
+"..gGyyGGGGyyGg..",
+"..gGGGGGGGGGGg..",
+".gggggggggggggg.",
+".gGGGGGGGGGGGGg.",
+".gGGGgGGGGgGGGg.",
+".gGGGGGGGGGGGGg.",
+".gggggggggggggg.",
+"..gggg....gggg..",
+"..gGGg....gGGg..",
+"..gggg....gggg..",
+"................",
+"................"],
+ghost: [
+"................",
+".....cccccc.....",
+"...cccccccccc...",
+"..cccccccccccc..",
+"..cceccccecccc..",
+"..cceccccecccc..",
+"..cccccccccccc..",
+"..cccccccccccc..",
+"..cccccccccccc..",
+"..cccccccccccc..",
+"..cc.cc.cc.cc...",
+"..c...c...c.....",
+"................",
+"................",
+"................",
+"................"],
+assassin: [
+"................",
+".....kkkkkk.....",
+"....kkkkkkkk....",
+"....kw.. ..wk...",
+"....kkkkkkkk....",
+".....kkkkkk.....",
+"...kkkkkkkkkk...",
+"..k.kkkkkkkk.k..",
+"..k.kkkkkkkkk.l.",
+"....kkkkkkkk..l.",
+"....kkkkkkkk.l..",
+".....kkkkkk.....",
+".....kk..kk.....",
+"....kk....kk....",
+"................",
+"................"],
+gargoyle: [
+"................",
+".g............g.",
+".gg....gg....gg.",
+".ggg..gggg..ggg.",
+".gggggggggggggg.",
+"..gggGGGGGGggg..",
+"...GyyGGGGyyG...",
+"...GGGGGGGGGG...",
+"....GGGGGGGG....",
+".....GGGGGG.....",
+"....ggG..Ggg....",
+"....gg....gg....",
+"...gg......gg...",
+"................",
+"................",
+"................"],
+wizard: [
+"................",
+"......PP........",
+"......PP........",
+".....PPPP.......",
+".....PPPP.......",
+"....PPPPPP......",
+"...PPPPPPPP.....",
+"..PPPPPPPPPP....",
+".....nnnnnn.....",
+".....neenen.....",
+"....wwwwwwww....",
+"...BBBBBBBBBB...",
+"..BBPPPPPPPPBB..",
+"..BBPPPPPPPPBB..",
+"..BBPPPPPPPPBB..",
+"...BBBBBBBBBB..."],
+key: [
+"................",
+"................",
+"...TTTTTT.......",
+"..TT....TT......",
+"..TT.TT.TT......",
+"..TT.TT.TT......",
+"..TT....TT......",
+"...TTTTTT.......",
+"......TT........",
+"......TT........",
+"......TTTT......",
+"......TT........",
+"......TTTT......",
+"......TT........",
+"................",
+"................"],
+door: [
+"................",
+"...TTTTTTTTTT...",
+"..TTTTTTTTTTTT..",
+"..TmMmMmMmMmMT..",
+"..TmMmMmMmMmMT..",
+"..TmMmMmMmMmMT..",
+"..TmMmMooMmMmT..",
+"..TmMmMooMmMmT..",
+"..TmMmMmMmMmMT..",
+"..TmMmMmMmMmMT..",
+"..TmMmMmMmMmMT..",
+"..TTTTTTTTTTTT..",
+"..TTTTTTTTTTTT..",
+"................",
+"................",
+"................"],
+gem: [
+"................",
+"....TTTTTTTT....",
+"...TttttttttT...",
+"..TttttttttttT..",
+"..TttttttttttT..",
+"...TttttttttT...",
+"....TttttttT....",
+".....TttttT.....",
+"......TttT......",
+".......TT.......",
+"................",
+"................",
+"................",
+"................",
+"................",
+"................"],
+heart: [
+"................",
+"................",
+"...rrr..rrr.....",
+"..rrrrrrrrrrr...",
+"..rrwrrrrrrrrr..",
+"..rrrrrrrrrrrr..",
+"...rrrrrrrrrr...",
+"....rrrrrrrr....",
+".....rrrrrr.....",
+"......rrrr......",
+".......rr.......",
+"................",
+"................",
+"................",
+"................",
+"................"],
+bag: [
+"................",
+"......mm........",
+".....mmmm.......",
+"....mm..mm......",
+"...mmmmmmmm.....",
+"..mMMMMMMMMm....",
+"..mMyMMMMMyMm...",
+"..mMMMMMMMMMm...",
+"..mMyMMMMMMyM...",
+"...mMMMMMMMm....",
+"....mmmmmmm.....",
+"................",
+"................",
+"................",
+"................",
+"................"],
+ring: [
+"................",
+"................",
+".......cc.......",
+"......cccc......",
+"......cCCc......",
+".......cc.......",
+".....ll..ll.....",
+"....l......l....",
+"....l......l....",
+"....l......l....",
+".....ll..ll.....",
+"................",
+"................",
+"................",
+"................",
+"................"],
+cloak: [
+"................",
+"......pppp......",
+"....pppppppp....",
+"...pppPPPPppp...",
+"...pppPPPPppp...",
+"...pppPPPPppp...",
+"...pppPPPPppp...",
+"...pppPPPPppp...",
+"...pppPPPPppp...",
+"....ppPPPPpp....",
+".....ppPPpp.....",
+"................",
+"................",
+"................",
+"................",
+"................"],
+shield: [
+"..llllllllllll..",
+"..lBBBBBBBBBBl..",
+"..lBBccccccBBl..",
+"..lBBcwccwcBBl..",
+"..lBBccccccBBl..",
+"...lBBBBBBBBl...",
+"...lBBBBBBBBl...",
+"....lBBBBBBl....",
+"....lBBBBBBl....",
+".....lBBBBl.....",
+"......lBl.......",
+".......l........",
+"................",
+"................",
+"................",
+"................"],
+clover: [
+".......g........",
+".......g........",
+"......gg........",
+"....ssssssss....",
+"...sSssssssSs...",
+"...ssssssssss...",
+"....ssssssss....",
+"...ssssssssss...",
+"...sSssssssSs...",
+"....ssssssss....",
+"................",
+"................",
+"................",
+"................",
+"................",
+"................"],
+bomb: [
+".........o......",
+"........o.o.....",
+".......g..g.....",
+"........gg......",
+"......kkkkkk....",
+"....kkKKKKKKkk..",
+"...kKKKKKKKKKk..",
+"..kKKwKKKKKKKKk.",
+"..kKKKKKKKKKKKk.",
+"..kKKKKKKKKKKKk.",
+"...kKKKKKKKKKk..",
+"....kkKKKKKKkk..",
+"......kkkkkk....",
+"................",
+"................",
+"................"],
+chest: [
+"................",
+"...mmmmmmmmmm...",
+"..mMMMMMMMMMMm..",
+"..mMmmmmmmmMMm..",
+"..mMMMMMMMMMMm..",
+"..mmmmmmmmmmm...",
+"..mMmmmyymmMMm..",
+"..mMmmmyymmMMm..",
+"..mMmmmmmmmMMm..",
+"..mMMMMMMMMMMm..",
+"...mmmmmmmmmm...",
+"................",
+"................",
+"................",
+"................",
+"................"],
+stairU: [
+"................",
+"...WWWWWWWWWW...",
+"...WWWWWWWWWW...",
+"...GGGGGGGGG....",
+"....GGGGGGG.....",
+"....ggggggg.....",
+".....gggggg.....",
+".....dddddd.....",
+"......dddddd....",
+"......kkkkkk....",
+"................",
+"................",
+"................",
+"................",
+"................",
+"................"],
+stairV: [
+"................",
+"...kkkkkkkkkk...",
+"...kddddddddk...",
+"...kddddddddk...",
+"....kdddddddk...",
+"....kGGGGGGGk...",
+".....kGGGGGk....",
+".....kGGGk......",
+"......kGk.......",
+"......kkk.......",
+"................",
+"................",
+"................",
+"................",
+"................",
+"................"],
+tele: [
+"................",
+"....p......p....",
+"...p........p...",
+"..p....pp....p..",
+"..p...p..p...p..",
+".p....p..p....p.",
+".p...p....p...p.",
+".p...p....p...p.",
+".p....p..p....p.",
+"..p....pp....p..",
+"..p........p....",
+"...p........p...",
+"....p......p....",
+"................",
+"................",
+"................"],
+shop: [
+"................",
+".....nnnnnn.....",
+"....nnnnnnnn....",
+"....nenenenn....",
+"....nnnnnnnn....",
+".....wwwwww.....",
+"...BBBBBBBBBB...",
+"..BBBwwwwwwBBB..",
+"..BBBwwwwwwBBB..",
+"..BBBwwwwwwBBB..",
+"...BBBBBBBBBB...",
+"....BB....BB....",
+"................",
+"................",
+"................",
+"................"]
 };
-function render() {
-  const g = document.getElementById("grid");
-  g.innerHTML = "";
-  const fx = S.px + S.face[0], fy = S.py + S.face[1];
-  for (let y = 0; y < 7; y++) for (let x = 0; x < 9; x++) {
-    const c = S.floors[S.floor][y][x];
-    const d = document.createElement("div");
-    d.className = "cell " + (c === "#" ? "wall" : isDoor(c) ? "door" + c : "floor");
-    if (x === S.px && y === S.py) d.textContent = "🙂";
-    else if (x === fx && y === fy) d.classList.add("facing");
-    d.textContent = (x === S.px && y === S.py) ? "🙂" : (GLYPH[c] || "");
-    if (isMonster(c) && c !== "X") {
-      const bar = document.createElement("div"); bar.className = "hpbar";
-      const i = document.createElement("i"); i.style.width = "100%"; bar.appendChild(i); d.appendChild(bar);
+// 变体调色板
+const VARIANTS = {
+  "4": { s:"#f0c040", S:"#b8860b", w:"#fff6c0" }   // 黄金史莱姆复用史莱姆造型
+};
+const CELL_SPRITE = {
+  "y":["key",{T:"#f0c040"}], "b":["key",{T:"#6ab0f0"}], "r":["key",{T:"#e05050"}],
+  "Y":["door",{T:"#f0c040"}], "B":["door",{T:"#5aa0f0"}], "R":["door",{T:"#e05050"}],
+  "A":["gem",{T:"#e05050",t:"#ff9a9a"}], "D":["gem",{T:"#4890e0",t:"#9ac8ff"}],
+  "H":["heart"], "G":["bag"], "e":["ring"], "f":["cloak"], "g":["shield"], "l":["clover"],
+  "!":["bomb"], "C":["chest"], "S":["shop"], "U":["stairU"], "V":["stairV"], "T":["tele"],
+  "1":["slime"], "2":["bat"], "3":["skeleton"], "4":["slime"],
+  "5":["golem"], "6":["ghost"], "7":["assassin"], "8":["gargoyle"], "X":["wizard"]
+};
+const spriteCache = {};
+function makeSprite(name, pal) {
+  const cv = document.createElement("canvas"); cv.width = 16; cv.height = 16;
+  const cx = cv.getContext("2d");
+  const art = ART[name];
+  for (let y = 0; y < 16; y++) {
+    const row = (art[y] || "").padEnd(16, ".").slice(0, 16);
+    for (let x = 0; x < 16; x++) {
+      const ch = row[x];
+      const col = (pal && pal[ch]) || PAL[ch];
+      if (col) { cx.fillStyle = col; cx.fillRect(x, y, 1, 1); }
     }
-    d.addEventListener("click", () => {
-      const dx = x - S.px, dy = y - S.py;
-      if (Math.abs(dx) + Math.abs(dy) === 1) tryMove(dx, dy);
-    });
-    g.appendChild(d);
+  }
+  return cv;
+}
+function getSprite(name, pal) {
+  const key = name + "|" + (pal ? JSON.stringify(pal) : "");
+  if (!spriteCache[key]) spriteCache[key] = makeSprite(name, pal);
+  return spriteCache[key];
+}
+function drawFloor(cx, x, y, T) {
+  cx.fillStyle = "#1c232b"; cx.fillRect(x, y, T, T);
+  cx.fillStyle = "#242d37"; cx.fillRect(x + 1, y + 1, T - 2, 1); cx.fillRect(x + 1, y + 1, 1, T - 2);
+  cx.fillStyle = "#12181e";
+  cx.fillRect(x + 3, y + 3, 1, 1); cx.fillRect(x + T - 4, y + 3, 1, 1);
+  cx.fillRect(x + 3, y + T - 4, 1, 1); cx.fillRect(x + T - 4, y + T - 4, 1, 1);
+}
+function drawWall(cx, x, y, T) {
+  cx.fillStyle = "#2a323b"; cx.fillRect(x, y, T, T);
+  const bw = T / 2, bh = T / 4;
+  for (let r = 0; r < 4; r++) {
+    const off = (r % 2) ? -bw / 2 : 0;
+    for (let c = -1; c < 3; c++) {
+      const bx = Math.max(x, x + off + c * bw), by = y + r * bh;
+      const w = Math.min(bw - 2, x + T - bx - 1);
+      if (w <= 0) continue;
+      cx.fillStyle = "#4d5a68"; cx.fillRect(bx, by + 1, w, bh - 2);
+      cx.fillStyle = "#61707f"; cx.fillRect(bx, by + 1, w, 1);
+    }
+  }
+}
+function render() {
+  const cv = document.getElementById("board");
+  const cx = cv.getContext("2d");
+  cx.imageSmoothingEnabled = false;
+  cx.clearRect(0, 0, cv.width, cv.height);
+  const T = 48, fx = S.px + S.face[0], fy = S.py + S.face[1];
+  for (let y = 0; y < 7; y++) for (let x = 0; x < 9; x++) {
+    const c = S.floors[S.floor][y][x], px = x * T, py = y * T;
+    if (c === "#") drawWall(cx, px, py, T); else drawFloor(cx, px, py, T);
+    const sp = CELL_SPRITE[c];
+    if (sp) cx.drawImage(getSprite(sp[0], sp[1] || VARIANTS[c]), px, py, T, T);
+    if (x === S.px && y === S.py) cx.drawImage(getSprite("hero"), px, py, T, T);
+    if (x === fx && y === fy) { cx.strokeStyle = "#7ee0a0"; cx.lineWidth = 2; cx.strokeRect(px + 1, py + 1, T - 2, T - 2); }
   }
   const p = S.p;
   document.getElementById("stats").innerHTML =
@@ -434,11 +882,30 @@ function describe(c) {
   return "空地";
 }
 
-document.getElementById("legend").innerHTML =
-  "🔑钥匙 🟡🔵🔴门 💪攻宝石 🛡防宝石 ❤血瓶 💰金币<br>" +
-  "❓神秘宝箱(随幸运升档) 🧙商店 ◎传送阵 💣炸弹<br>" +
-  "💍暴击戒指 🧥幻影披风 🍀幸运护符<br>" +
-  "🗿石头人(格挡) 👻幽灵(闪避) 🗡刺客(暴击) 🟡黄金史莱姆(多金) 🦅石像鬼";
+const LEGEND = [
+  ["1","绿史莱姆"],["4","黄金史莱姆·多金"],["2","蝙蝠"],["3","骷髅兵"],["5","石头人·格挡"],["6","幽灵·闪避"],["7","刺客·暴击"],["8","石像鬼"],["X","巫师·BOSS"],
+  ["key","钥匙"],["door","门"],["gem","宝石"],["heart","血瓶"],["bag","金币袋"],["chest","神秘宝箱"],["ring","暴击戒指"],["cloak","幻影披风"],["shield","塔盾"],["clover","幸运护符"],["bomb","炸弹"],["shop","商店"],["tele","传送阵"],["stairU","上楼"],["stairV","下楼"]
+];
+function buildLegend() {
+  const el = document.getElementById("legend"); el.innerHTML = "";
+  LEGEND.forEach(([k, label]) => {
+    const sp = CELL_SPRITE[k] || [k];
+    const c = document.createElement("canvas"); c.width = 16; c.height = 16;
+    c.style.cssText = "width:20px;height:20px;image-rendering:pixelated;vertical-align:-4px;margin:2px 3px 2px 8px;";
+    c.getContext("2d").drawImage(getSprite(sp[0], sp[1] || VARIANTS[k]), 0, 0);
+    const s = document.createElement("span"); s.textContent = label;
+    el.appendChild(c); el.appendChild(s);
+  });
+}
+buildLegend();
+
+document.getElementById("board").addEventListener("click", e => {
+  const r = e.target.getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) * (432 / r.width) / 48);
+  const y = Math.floor((e.clientY - r.top) * (336 / r.height) / 48);
+  const dx = x - S.px, dy = y - S.py;
+  if (Math.abs(dx) + Math.abs(dy) === 1) tryMove(dx, dy);
+});
 
 document.addEventListener("keydown", e => {
   const k = e.key;
