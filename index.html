@@ -55,7 +55,7 @@
       <button id="btnRestart">重开</button>
     </div>
   </div>
-  <div id="center"><canvas id="board" width="432" height="336"></canvas></div>
+  <div id="center"><canvas id="board" width="624" height="624"></canvas></div>
   <div id="right">
     <h1 id="floorName">1F</h1>
     <div id="preview">走向怪物或与其相邻时，这里显示这场战斗的精确结算。</div>
@@ -69,60 +69,158 @@
 <script>
 /*DATA_START*/
 const DATA = {
+  W: 13, H: 13,
+  tele: [[2, 6]], // 3F ↔ 7F
   floors: [
-    [ // 1F
-      "#########",
-      "#P.1A.A.#",
-      "#.#.#.#.#",
-      "#.y.Y...#",
-      "#.#.#.#.#",
-      "#H..1.DU#",
-      "#########"
+    [ // 1F 入门：黄钥匙教学，骷髅守楼梯
+      "#############",
+      "#P.........G#",
+      "#.##Y###Y##.#",
+      "#.#A..#...#.#",
+      "#.#.1.#..y#.#",
+      "#.#########.#",
+      "#.....3.....#",
+      "#.##Y###.##.#",
+      "#.#H..#...#.#",
+      "#.#.2.#.###.#",
+      "#.#########.#",
+      "#..y........#",
+      "######U######"
     ],
-    [ // 2F
-      "#########",
-      "#V.3.Gb.#",
-      "#.#####.#",
-      "#.#4.#.B#",
-      "#.#.#.#.#",
-      "#.5.e.DU#",
-      "#########"
+    [ // 2F 首扇蓝门：暴击戒指；炸弹出现
+      "#############",
+      "#.bH.....2..#",
+      "#.##B###.##.#",
+      "#.#e..#...#.#",
+      "#.#...#.2.#.#",
+      "#.#########.#",
+      "#.....2.....#",
+      "#.##Y###Y##.#",
+      "#.#G..#...#.#",
+      "#.#.3.#..!#.#",
+      "#.#########.#",
+      "#..1..y.....#",
+      "#####V#U#####"
     ],
-    [ // 3F
-      "#########",
-      "#V.H6rG.#",
-      "#.#####.#",
-      "#.#S.T#.#",
-      "#.#.#.#.#",
-      "#.7..DU.#",
-      "#########"
+    [ // 3F 幽灵考验（闪避）+ 黄金史莱姆经济；蓝门后是传送阵
+      "#############",
+      "#.....6..b..#",
+      "#.##Y###B##.#",
+      "#.#y..#...#.#",
+      "#.#...#.T.#.#",
+      "#.#########.#",
+      "#..6........#",
+      "#.##Y###.##.#",
+      "#.#A..#4..#.#",
+      "#.#...#6..#.#",
+      "#.#########.#",
+      "#..4........#",
+      "#####V#U#####"
     ],
-    [ // 4F
-      "#########",
-      "#V.GD..U#",
-      "#.#####.#",
-      "#.#fCg#.#",
-      "#.#.Y.#.#",
-      "#.8..AD.#",
-      "#########"
+    [ // 4F 石头人考验（格挡）；蓝门后双攻宝石=中期投资
+      "#############",
+      "#..D...5....#",
+      "#.##Y###.##.#",
+      "#.#D..#..H#.#",
+      "#.#...#.5.#.#",
+      "#.#########.#",
+      "#.....5.....#",
+      "#.##B###.##.#",
+      "#.#A..#...#.#",
+      "#.#A..#...#.#",
+      "#.#########.#",
+      "#..y...y....#",
+      "#####V#U#####"
     ],
-    [ // 5F
-      "#########",
-      "#V.3Gr8U#",
-      "#.#####.#",
-      "#.y6CGT.#",
-      "#.#####.#",
-      "#.6.!..D#",
-      "#########"
+    [ // 5F 商店层：金币决策；吸血鬼登场（高攻+闪避）
+      "#############",
+      "#..9.....G..#",
+      "#.##Y###B##.#",
+      "#.#G..#...#.#",
+      "#.#.9.#..A#.#",
+      "#.#########.#",
+      "#.....S.....#",
+      "#.##Y###.##.#",
+      "#.#H..#...#.#",
+      "#.#...#.9.#.#",
+      "#.#########.#",
+      "#..G.y.b....#",
+      "#####V#U#####"
     ],
-    [ // 6F
-      "#########",
-      "#V.Y.R.X#",
-      "#.#######",
-      "#..H..G.#",
-      "#.#.#.#.#",
-      "#D.l..y.#",
-      "#########"
+    [ // 6F 刺客（暴击）+ 铁傀儡（重甲）；首扇红门
+      "#############",
+      "#..7.....0..#",
+      "#.##Y###R##.#",
+      "#.#C..#...#.#",
+      "#.#.7.#.A.#.#",
+      "#.#########.#",
+      "#.b7....r...#",
+      "#.##.###.##.#",
+      "#.#G..#...#.#",
+      "#.#.0.#...#.#",
+      "#.#########.#",
+      "#..H.y.7....#",
+      "#####V#U#####"
+    ],
+    [ // 7F 传送阵落点；黑袍僧（高攻暴击）；幸运护符在蓝门后
+      "#############",
+      "#..Z....T.H.#",
+      "#.##B###.##.#",
+      "#.#l..#...#.#",
+      "#.#.Z.#...#.#",
+      "#.#########.#",
+      "#..H........#",
+      "#.##.###Y##.#",
+      "#.#D..#...#.#",
+      "#.#.Z.#..D#.#",
+      "#.#########.#",
+      "#..A.y.b....#",
+      "#####V#U#####"
+    ],
+    [ // 8F 第二商店；石像鬼走廊；红门后幻影披风
+      "#############",
+      "#..8.....9..#",
+      "#.##R###.##.#",
+      "#.#f..#...#.#",
+      "#.#.8.#..8#.#",
+      "#.#########.#",
+      "#.....S.....#",
+      "#.##Y###B##.#",
+      "#.#H..#...#.#",
+      "#.#9..#..A#.#",
+      "#.#########.#",
+      "#..A...r....#",
+      "#####V#U#####"
+    ],
+    [ // 9F 铁傀儡+黑袍僧守资源；堆防的最后机会
+      "#############",
+      "#..0.....Z..#",
+      "#.##Y###B##.#",
+      "#.#A..#...#.#",
+      "#.#.0.#..D#.#",
+      "#.#########.#",
+      "#..0........#",
+      "#.##.###.##.#",
+      "#.#H..#...#.#",
+      "#.#H..#..A#.#",
+      "#.#########.#",
+      "#..D...y....#",
+      "#####V#U#####"
+    ],
+    [ // 10F 决战：红门后石像鬼双守卫+巫师
+      "#############",
+      "#V.........A#",
+      "#.##Y###.##.#",
+      "#.#H..#..D#.#",
+      "#.#.Z.#..H#.#",
+      "#.#########.#",
+      "#..8.....8..#",
+      "#.####R####.#",
+      "#.####.....##",
+      "#.####.8X8.##",
+      "#.####...H.##",
+      "#.###########",
+      "#############"
     ]
   ],
   monsters: {
@@ -132,9 +230,12 @@ const DATA = {
     "4": { name: "黄金史莱姆", hp: 60, atk: 18, def: 6,  crit: 0,  dodge: 0,  block: 0, gold: 30 },
     "5": { name: "石头人",   hp: 160, atk: 30, def: 10, crit: 0,  dodge: 0,  block: 6, gold: 12 },
     "6": { name: "幽灵",     hp: 70,  atk: 34, def: 6,  crit: 0,  dodge: 25, block: 0, gold: 10 },
-    "7": { name: "刺客",     hp: 90,  atk: 45, def: 10, crit: 20, dodge: 0,  block: 0, gold: 14 },
-    "8": { name: "石像鬼",   hp: 100, atk: 44, def: 8,  crit: 0,  dodge: 0,  block: 2, gold: 16 },
-    "X": { name: "巫师",     hp: 180, atk: 48, def: 6,  crit: 10, dodge: 10, block: 0, gold: 0 }
+    "7": { name: "刺客",     hp: 85,  atk: 40, def: 10, crit: 20, dodge: 0,  block: 0, gold: 14 },
+    "8": { name: "石像鬼",   hp: 100, atk: 40, def: 8,  crit: 0,  dodge: 0,  block: 2, gold: 16 },
+    "9": { name: "吸血鬼",   hp: 120, atk: 48, def: 12, crit: 0,  dodge: 10, block: 0, gold: 20 },
+    "0": { name: "铁傀儡",   hp: 200, atk: 38, def: 22, crit: 0,  dodge: 0,  block: 8, gold: 28 },
+    "Z": { name: "黑袍僧",   hp: 140, atk: 52, def: 10, crit: 15, dodge: 0,  block: 0, gold: 22 },
+    "X": { name: "巫师",     hp: 200, atk: 52, def: 14, crit: 10, dodge: 10, block: 0, gold: 0 }
   },
   shop: [
     { key: "atk",   label: "攻 +2",   cost: 25 },
@@ -247,7 +348,7 @@ function tryMove(dx, dy) {
   if (S.over) return;
   S.face = [dx, dy];
   const nx = S.px + dx, ny = S.py + dy;
-  if (nx < 0 || ny < 0 || nx > 8 || ny > 6) { render(); return; }
+  if (nx < 0 || ny < 0 || nx >= DATA.W || ny >= DATA.H) { render(); return; }
   const c = cellAt(S.floor, nx, ny);
   if (c === "#") { render(); return; }
   if (isDoor(c)) {
@@ -271,7 +372,8 @@ function enterCell(c, x, y) {
   if (c === "U") { S.floor++; S.py = findStair(S.floor, "V")[1]; S.px = findStair(S.floor, "V")[0]; msg("登上 " + (S.floor + 1) + "F"); }
   else if (c === "V") { S.floor--; const u = findStair(S.floor, "U"); S.px = u[0]; S.py = u[1]; msg("下到 " + (S.floor + 1) + "F"); }
   else if (c === "T") {
-    const other = S.floor === 2 ? 4 : 2;
+    const pair = DATA.tele.find(pr => pr[0] === S.floor || pr[1] === S.floor) || [2, 6];
+    const other = pair[0] === S.floor ? pair[1] : pair[0];
     const t = findStair(other, "T");
     S.floor = other; S.px = t[0]; S.py = t[1];
     msg("传送阵启动！");
@@ -286,7 +388,7 @@ function enterCell(c, x, y) {
   }
 }
 function findStair(f, ch) {
-  for (let y = 0; y < 7; y++) for (let x = 0; x < 9; x++)
+  for (let y = 0; y < DATA.H; y++) for (let x = 0; x < DATA.W; x++)
     if (S.floors[f][y][x] === ch) return [x, y];
   return [1, 1];
 }
@@ -306,7 +408,7 @@ function fight(x, y, c) {
 
 function bomb() {
   const nx = S.px + S.face[0], ny = S.py + S.face[1];
-  if (nx < 0 || ny < 0 || nx > 8 || ny > 6) return;
+  if (nx < 0 || ny < 0 || nx >= DATA.W || ny >= DATA.H) return;
   const c = cellAt(S.floor, nx, ny);
   if (!isMonster(c) || c === "X") { msg("炸弹只能炸普通怪物"); return; }
   if (S.p.bombs <= 0) { msg("没有炸弹了"); return; }
@@ -770,7 +872,11 @@ const CELL_SPRITE = {
   "H":["heart"], "G":["bag"], "e":["ring"], "f":["cloak"], "g":["shield"], "l":["clover"],
   "!":["bomb"], "C":["chest"], "S":["shop"], "U":["stairU"], "V":["stairV"], "T":["tele"],
   "1":["slime"], "2":["bat"], "3":["skeleton"], "4":["slime"],
-  "5":["golem"], "6":["ghost"], "7":["assassin"], "8":["gargoyle"], "X":["wizard"]
+  "5":["golem"], "6":["ghost"], "7":["assassin"], "8":["gargoyle"],
+  "9":["wizard",{P:"#8c1e1e",p:"#d03838",B:"#2a1020",n:"#e8d0d0"}],
+  "0":["golem",{g:"#c0ccd8",G:"#8898a8"}],
+  "Z":["skeleton",{w:"#6a5a78",e:"#e05050"}],
+  "X":["wizard"]
 };
 const spriteCache = {};
 function makeSprite(name, pal) {
@@ -819,7 +925,7 @@ function render() {
   cx.imageSmoothingEnabled = false;
   cx.clearRect(0, 0, cv.width, cv.height);
   const T = 48, fx = S.px + S.face[0], fy = S.py + S.face[1];
-  for (let y = 0; y < 7; y++) for (let x = 0; x < 9; x++) {
+  for (let y = 0; y < DATA.H; y++) for (let x = 0; x < DATA.W; x++) {
     const c = S.floors[S.floor][y][x], px = x * T, py = y * T;
     if (c === "#") drawWall(cx, px, py, T); else drawFloor(cx, px, py, T);
     const sp = CELL_SPRITE[c];
@@ -842,7 +948,7 @@ function row(k, v, cls) { return '<div class="stat"><span>' + k + "</span><b cla
 function updatePreview() {
   const el = document.getElementById("preview");
   const nx = S.px + S.face[0], ny = S.py + S.face[1];
-  if (nx < 0 || ny < 0 || nx > 8 || ny > 6) { el.textContent = "面对一堵墙。"; return; }
+  if (nx < 0 || ny < 0 || nx >= DATA.W || ny >= DATA.H) { el.textContent = "面对一堵墙。"; return; }
   const c = S.floors[S.floor][ny][nx];
   if (!isMonster(c)) { el.textContent = "面前：" + describe(c) + "\n（面对怪物时显示战斗结算）"; return; }
   const m = DATA.monsters[c];
@@ -866,7 +972,7 @@ function describe(c) {
   if (c === "R") return "红门（需红钥匙）";
   if (c === "U") return "上楼梯";
   if (c === "V") return "下楼梯";
-  if (c === "T") return "传送阵 → " + (S.floor === 2 ? "5F" : "3F");
+  if (c === "T") { const pr = DATA.tele.find(p => p[0] === S.floor || p[1] === S.floor) || [2, 6]; return "传送阵 → " + ((pr[0] === S.floor ? pr[1] : pr[0]) + 1) + "F"; }
   if (c === "S") return "商店";
   if (c === "C") return "神秘宝箱（当前幸运 " + S.p.luck + "：" + chestReward(S.p.luck).text.split("：")[1] + "）";
   if ("ybr".includes(c)) return "钥匙";
@@ -901,8 +1007,8 @@ buildLegend();
 
 document.getElementById("board").addEventListener("click", e => {
   const r = e.target.getBoundingClientRect();
-  const x = Math.floor((e.clientX - r.left) * (432 / r.width) / 48);
-  const y = Math.floor((e.clientY - r.top) * (336 / r.height) / 48);
+  const x = Math.floor((e.clientX - r.left) * (e.target.width / r.width) / 48);
+  const y = Math.floor((e.clientY - r.top) * (e.target.height / r.height) / 48);
   const dx = x - S.px, dy = y - S.py;
   if (Math.abs(dx) + Math.abs(dy) === 1) tryMove(dx, dy);
 });
