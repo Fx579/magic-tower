@@ -921,111 +921,95 @@ log("欢迎来到魔塔。救出公主并击败魔王吧！", 1);
     }
     return d + extra < hp ? extra : Infinity;
   }
-  /* 跨层 Dijkstra：怪物不可通行，门耗钥匙（预算 budget），返回每格最损血与耗钥 */
-  function search(budget) {
-    const SZ = 51 * NN;
-    const dist = new Float64Array(SZ).fill(Infinity), used = new Array(SZ).fill(null);
-    const h = [];
-    const s0 = S.floor * NN + heroIdx();
-    dist[s0] = 0; used[s0] = { 1: 0, 2: 0, 3: 0 }; hp_(h, [0, s0, 0]);
-    const reachKeyProps = [];
-    while (h.length) {
-      const [pr, sid, d] = hpop(h); if (d > dist[sid]) continue;
-      const f = (sid / NN) | 0, i = sid % NN, c = cell(f, i);
-      if (c && c.k === "stair") { // 楼梯转移
-        const st = DATA.stairs[f]; const up = !!c.up; const info = up ? st.up : st.down;
-        if (info && info.diff) { const t = f + info.diff;
-          if (t >= 1 && t <= 50) { const ts = DATA.stairs[t]; const land = up ? (ts.down && ts.down.stand) : (ts.up && ts.up.stand);
-            if (land != null && land >= 0) { const sid2 = t * NN + land; const u = used[sid]; const kt = u[1] + u[2] + u[3];
-              if (d < dist[sid2]) { dist[sid2] = d; used[sid2] = u; hp_(h, [d + 0.001 * kt, sid2, d]); } } } }
+  /* 资源感知 Dijkstra：标签=(损血d, 钥匙余额b, 耗钥o)，每格维护 Pareto 前沿
+     - 怪物格可通行：踩上即战斗，损血计入 d（需可胜且血量始终>0），解决"绕不开挡路怪"
+     - 彩色门：余额≥1 才可开，开一扇余额−1；沿途钥匙道具自动拾取使余额+1，
+       即"先捡到的钥匙才能开前面的门"，杜绝用全局预算虚增可达性
+     - singleFloor=true：只在当前层找上楼梯（逃生/卡关校验用），返回首个到楼梯标签 */
+  function resSearch(f0, i0, keys0, dead, singleFloor, hpMax) {
+    const CAP = 9, K = 12; // 钥匙余额上限与每格前沿容量：防止来回踩钥匙导致标签爆炸
+    const front = new Map(), all = [], h = [];
+    let uid = 0;
+    const push = (f, i, d, b1, b2, b3, o1, o2, o3) => {
+      if (d >= hpMax || all.length > 400000) return;
+      if (b1 > CAP) b1 = CAP; if (b2 > CAP) b2 = CAP; if (b3 > CAP) b3 = CAP;
+      const sid = f * NN + i;
+      let arr = front.get(sid); if (!arr) { arr = []; front.set(sid, arr); }
+      for (const M of arr) if (M.alive && M.d <= d && M.b1 >= b1 && M.b2 >= b2 && M.b3 >= b3) return;
+      for (const M of arr) if (d <= M.d && b1 >= M.b1 && b2 >= M.b2 && b3 >= M.b3) M.alive = false;
+      const L = { f, i, d, b1, b2, b3, o1, o2, o3, id: uid++, alive: true };
+      arr.push(L); all.push(L); hp_(h, [d + 0.001 * (o1 + o2 + o3), L.id, 0]);
+      if (arr.length > 3 * K) { const keep = arr.filter(M => M.alive); arr.length = 0; for (const M of keep) arr.push(M); }
+      if (arr.length > K) {
+        let w = null;
+        for (const M of arr) if (M.alive && (!w || M.d > w.d || (M.d === w.d && M.b1 + M.b2 + M.b3 < w.b1 + w.b2 + w.b3))) w = M;
+        if (w) w.alive = false;
       }
-      for (const dd of DIRS) {
-        if (!okN(i, dd)) continue; const j = i + dd; const nc = cell(f, j);
-        let cost = 0, nu = used[sid];
-        if (!nc) { cost = wizardDmg(f, j); if (guardTrap(f, j)) continue; }
-        else switch (nc.k) {
-          case "wall": continue;
-          case "mon": if (!nc.hide) continue; break;
-          case "lava": if (propNum(23) <= 0) continue; break;
-          case "door": {
-            if (nc.ds === "h") continue;
-            if (doorFree(f, nc, S.dead)) break;
-            if (nc.id >= 1004) break; // 怪物门：按可开处理（卡关校验会计入守门战斗）
-            const kid = doorKey[nc.id]; if (!kid) continue;
-            if (nu[kid] + 1 > budget[kid]) continue;
-            nu = { 1: nu[1], 2: nu[2], 3: nu[3] }; nu[kid]++;
-            break;
-          }
-          case "prop": if (!nc.hide) { const kc = keyColorOfProp(nc.id); if (kc) reachKeyProps.push({ f, i: j, color: kc }); } break;
-          default: break;
+    };
+    push(f0, i0, 0, keys0[1], keys0[2], keys0[3], 0, 0, 0);
+    let goal = null;
+    while (h.length) {
+      const [, id] = hpop(h); const L = all[id]; if (!L || !L.alive) continue;
+      const { f, i, d } = L, cs = cellsOf(f), c = cs[i];
+      if (c && c.k === "stair") {
+        if (singleFloor) { const info = DATA.stairs[f].up; if (c.up && info && info.diff > 0) { goal = L; break; } }
+        else {
+          const up = !!c.up, info = up ? DATA.stairs[f].up : DATA.stairs[f].down;
+          if (info && info.diff) { const t = f + info.diff;
+            if (t >= 1 && t <= 50) { const ts = DATA.stairs[t]; const land = up ? (ts.down && ts.down.stand) : (ts.up && ts.up.stand);
+              if (land != null && land >= 0) push(t, land, d, L.b1, L.b2, L.b3, L.o1, L.o2, L.o3); } }
         }
-        const nd = d + cost, sid2 = f * NN + j, kt = nu[1] + nu[2] + nu[3], ou = used[sid2];
-        if (nd < dist[sid2] || (nd === dist[sid2] && ou && kt < ou[1] + ou[2] + ou[3])) { dist[sid2] = nd; used[sid2] = nu; hp_(h, [nd + 0.001 * kt, sid2, nd]); }
       }
-    }
-    return { dist, used, reachKeyProps };
-  }
-  /* 单层逃生 Dijkstra：允许战斗（耗损血）、门耗钥（本层可捡钥匙计入预算），目标=上楼梯 */
-  function floorEscape(f, entry, hp, keys, dead) {
-    const cs = cellsOf(f);
-    const dist = new Float64Array(NN).fill(Infinity), used = new Array(NN).fill(null);
-    const budget = { 1: keys[1], 2: keys[2], 3: keys[3] };
-    for (let i = 0; i < NN; i++) { const c = cs[i]; if (c && c.k === "prop" && !c.hide) { const kc = keyColorOfProp(c.id); if (kc) budget[kc]++; } }
-    const h = []; dist[entry] = 0; used[entry] = { 1: 0, 2: 0, 3: 0 }; hp_(h, [0, entry, 0]);
-    let goal = -1, gd = Infinity;
-    while (h.length) {
-      const [pr, i, d] = hpop(h); if (d > dist[i]) continue;
-      const c = cs[i];
-      if (c && c.k === "stair" && c.up) { const info = DATA.stairs[f].up; if (info && info.diff > 0) { goal = i; gd = d; break; } }
       for (const dd of DIRS) {
         if (!okN(i, dd)) continue; const j = i + dd; const nc = cs[j];
-        let cost = 0, nu = used[i];
+        let cost = 0, b1 = L.b1, b2 = L.b2, b3 = L.b3, o1 = L.o1, o2 = L.o2, o3 = L.o3;
         if (!nc) { cost = wizardDmg(f, j); if (guardTrap(f, j)) continue; }
         else switch (nc.k) {
           case "wall": continue;
-          case "lava": if (propNum(23) <= 0) continue; break;
           case "mon": {
-            if (nc.hide) break;
-            if (dead[f] && dead[f][j]) break;
+            if (nc.hide || (dead[f] && dead[f][j])) { cost = wizardDmg(f, j); if (guardTrap(f, j)) continue; break; }
             const m = monStats(f, j); if (!m) continue;
-            const sim = simAt({ hp: hp - d, atk: S.atk, def: S.def, props: S.props }, m, nc.fa);
-            if (!sim.canWin) continue; cost = sim.loss; if (d + cost >= hp) continue;
+            const sim = simAt({ hp: hpMax - d, atk: S.atk, def: S.def, props: S.props }, m, nc.fa);
+            if (!sim.canWin) continue; cost = sim.loss;
             break;
           }
+          case "lava": if (propNum(23) <= 0) continue; break;
           case "door": {
             if (nc.ds === "h") continue;
             if (doorFree(f, nc, dead)) break;
-            if (nc.opens && nc.opens.length) { // 静态怪物门：守门怪可全杀则计入战斗代价放行
-              cost = killGroupCost(f, cs, nc.opens, d, hp, dead);
-              if (cost === Infinity) continue;
-              break;
-            }
-            if (nc.id >= 1004) break; // 怪物门：按可开处理（守门战斗在踩踏怪物格时已计费）
+            if (nc.opens && nc.opens.length) { cost = killGroupCost(f, cs, nc.opens, d, hpMax, dead); if (cost === Infinity) continue; break; }
+            if (nc.id >= 1004) break; // 事件怪物门：静态不可建模，按可开处理
             const kid = doorKey[nc.id]; if (!kid) continue;
-            if (nu[kid] + 1 > budget[kid]) continue;
-            nu = { 1: nu[1], 2: nu[2], 3: nu[3] }; nu[kid]++;
+            const bal = kid === 1 ? b1 : kid === 2 ? b2 : b3;
+            if (bal < 1) continue;
+            if (kid === 1) { b1--; o1++; } else if (kid === 2) { b2--; o2++; } else { b3--; o3++; }
             break;
           }
+          case "prop": if (!nc.hide) { const kc = keyColorOfProp(nc.id); if (kc === 1) b1++; else if (kc === 2) b2++; else if (kc === 3) b3++; } break;
           default: break;
         }
-        const nd = d + cost, kt2 = nu[1] + nu[2] + nu[3], ou2 = used[j];
-        if (nd < dist[j] || (nd === dist[j] && ou2 && kt2 < ou2[1] + ou2[2] + ou2[3])) { dist[j] = nd; used[j] = nu; hp_(h, [nd + 0.001 * kt2, j, nd]); }
+        push(f, j, d + cost, b1, b2, b3, o1, o2, o3);
       }
     }
-    if (goal < 0) return { ok: false };
+    return singleFloor ? goal : front;
+  }
+  /* 单层逃生：资源感知搜索，目标=上楼梯；返回到楼梯时的剩余血量/钥匙余额 */
+  function floorEscape(f, entry, hp, keys, dead) {
+    const goal = resSearch(f, entry, keys, dead, true, hp);
+    if (!goal) return { ok: false };
     const info = DATA.stairs[f].up, t = f + info.diff;
     if (t < 1 || t > 50 || t <= f) return { ok: false };
     const ts = DATA.stairs[t]; const land = ts && ts.down ? ts.down.stand : -1;
-    return { ok: true, hp: hp - gd, keys: { 1: keys[1] - used[goal][1], 2: keys[2] - used[goal][2], 3: keys[3] - used[goal][3] }, entry: land >= 0 ? land : 0, nextFloor: t };
+    return { ok: true, hp: hp - goal.d, keys: { 1: goal.b1, 2: goal.b2, 3: goal.b3 }, entry: land >= 0 ? land : 0, nextFloor: t };
   }
   /* 卡关校验：预演击杀候选后，逐层贪心向上推进到 50F */
   function stuckCheck(cand) {
     let hp = S.hp - cand.total;
-    const keys = { 1: Math.max(0, propNum(1) - cand.keys[1]), 2: Math.max(0, propNum(2) - cand.keys[2]), 3: Math.max(0, propNum(3) - cand.keys[3]) };
+    const keys = { 1: cand.endB[1], 2: cand.endB[2], 3: cand.endB[3] }; // 执行完推荐后的真实钥匙余额
     const dead = {}; for (const f in S.dead) dead[f] = Object.assign({}, S.dead[f]);
     dead[cand.f] = Object.assign({}, dead[cand.f] || {}); dead[cand.f][cand.monI] = 1;
     if (cand.bigCells) cand.bigCells.forEach(o => { dead[cand.f][o] = 1; });
-    let f = cand.f, entry = cand.i;
+    let f = cand.f, entry = cand.monI;
     while (f < 50) {
       const r = floorEscape(f, entry, hp, keys, dead);
       if (r.ok) { hp = r.hp; keys[1] = r.keys[1]; keys[2] = r.keys[2]; keys[3] = r.keys[3]; entry = r.entry; f = r.nextFloor; continue; }
@@ -1034,18 +1018,11 @@ log("欢迎来到魔塔。救出公主并击败魔王吧！", 1);
     }
     return null;
   }
-  /* 主求解 */
+  /* 主求解：从当前位置做一次资源感知搜索（含沿途强制战斗与逐门钥匙校验），
+     候选代价 = 到相邻格的最优标签损血 + 对该怪的战斗损血 */
   function solve() {
     const held = { 1: propNum(1), 2: propNum(2), 3: propNum(3) };
-    let budget = Object.assign({}, held), res = null;
-    for (let it = 0; it < 3; it++) { // 钥匙预算迭代：可达层上能捡的钥匙加入预算
-      res = search(budget);
-      const nb = Object.assign({}, held), seen = {};
-      res.reachKeyProps.forEach(k => { const id = k.f + ":" + k.i; if (!seen[id]) { seen[id] = 1; nb[k.color]++; } });
-      let ch = false; for (const c of [1, 2, 3]) if (nb[c] !== budget[c]) { budget[c] = nb[c]; ch = true; }
-      if (!ch) break;
-    }
-    const st = { hp: S.hp, atk: S.atk, def: S.def, props: S.props };
+    const front = resSearch(S.floor, heroIdx(), held, S.dead, false, S.hp);
     const cands = [], groupSeen = {};
     for (let f = 1; f <= 50; f++) {
       const cs = cellsOf(f);
@@ -1057,16 +1034,21 @@ log("欢迎来到魔塔。救出公主并击败魔王吧！", 1);
         const m = monStats(f, i); if (!m) continue;
         const cells = [i]; const bigCells = [];
         if (c.big) c.big.forEach(o => { if (i + o >= 0 && i + o < NN && cs[i + o] && cs[i + o].k === "mon") { cells.push(i + o); bigCells.push(i + o); } });
-        let best = -1, bd = Infinity, bu = null;
+        let best = -1, bt = Infinity, bl = null;
         for (const ci of cells) for (const dd of DIRS) {
-          if (!okN(ci, dd)) continue; const j = ci + dd, sid = f * NN + j;
-          const u = res.used[sid], kt = u ? u[1] + u[2] + u[3] : 99, bt = bu ? bu[1] + bu[2] + bu[3] : 99;
-          if (res.dist[sid] < bd || (res.dist[sid] === bd && bd < Infinity && kt < bt)) { bd = res.dist[sid]; best = j; bu = u; }
+          if (!okN(ci, dd)) continue; const j = ci + dd;
+          const arr = front.get(f * NN + j); if (!arr) continue;
+          for (const L of arr) {
+            if (!L.alive) continue;
+            const sim = simAt({ hp: S.hp - L.d, atk: S.atk, def: S.def, props: S.props }, m, c.fa);
+            if (!sim.canWin) continue;
+            const total = L.d + sim.loss; if (total >= S.hp) continue;
+            const kt = L.o1 + L.o2 + L.o3, bt2 = bl ? bl.o1 + bl.o2 + bl.o3 : 99;
+            if (total < bt || (total === bt && kt < bt2)) { bt = total; best = j; bl = L; }
+          }
         }
-        if (best < 0 || bd === Infinity) continue;
-        const sim = simAt(st, m, c.fa); if (!sim.canWin) continue;
-        const total = bd + sim.loss; if (total >= S.hp) continue;
-        cands.push({ f, i: best, monI: i, bigCells: c.big ? bigCells : null, name: m.name, pathD: bd, battle: sim.loss, total, keys: bu || { 1: 0, 2: 0, 3: 0 }, gold: m.gold * (propNum(27) ? 2 : 1) });
+        if (best < 0) continue;
+        cands.push({ f, i: best, monI: i, bigCells: c.big ? bigCells : null, name: m.name, pathD: bl.d, battle: bt - bl.d, total: bt, keys: { 1: bl.o1, 2: bl.o2, 3: bl.o3 }, endB: { 1: bl.b1, 2: bl.b2, 3: bl.b3 }, gold: m.gold * (propNum(27) ? 2 : 1) });
       }
     }
     cands.sort((a, b) => a.total - b.total || b.gold - a.gold);
@@ -1088,7 +1070,7 @@ log("欢迎来到魔塔。救出公主并击败魔王吧！", 1);
       const warn = c.warn ? '<div><span class="hw">⚠ 卡关风险：' + c.warn.floor + 'F 起可能无法继续推进</span></div>' : "";
       return '<div class="hint-item" data-f="' + c.f + '" data-i="' + c.monI + '">' +
         '<div><span class="hn">' + c.name + '</span> <span class="hd">' + c.f + 'F · 第' + (y + 1) + '行第' + (x + 1) + '列</span></div>' +
-        '<div class="hd">预计损血 <b style="color:var(--red)">' + c.total + '</b>（路径 ' + c.pathD + ' + 战斗 ' + c.battle + '）</div>' +
+        '<div class="hd">预计损血 <b style="color:var(--red)">' + c.total + '</b>（含沿途强制战斗 ' + c.pathD + ' + 目标 ' + c.battle + '）</div>' +
         '<div class="hd">开门钥匙：' + keys + ' ｜ 金币 +' + c.gold + '</div>' + warn + '</div>';
     }).join("");
     list.querySelectorAll(".hint-item").forEach(el => {
