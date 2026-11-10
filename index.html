@@ -1052,7 +1052,8 @@ log("欢迎来到魔塔。救出公主并击败魔王吧！", 1);
       }
     }
     cands.sort((a, b) => a.total - b.total || b.gold - a.gold);
-    const top = cands.slice(0, 10);
+    const seenT = {}, top = [];
+    for (const c of cands) { const k = c.f + ":" + c.name; if (seenT[k]) continue; seenT[k] = 1; top.push(c); if (top.length >= 5) break; }
     top.forEach(cd => { cd.warn = stuckCheck(cd); });
     return top;
   }
