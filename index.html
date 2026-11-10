@@ -477,7 +477,12 @@ function npcInteract(i) {
   if (info.type === 2) { // 老人
     if (info.value && info.value.prop && !st.traded) {
       st.traded = 1;
-      rewardDialog(info.talk[0], name, () => { eatProp(info.value.prop); clearCell(f, i); });
+      rewardDialog(info.talk[0], name, () => {
+        const p = info.value.prop;
+        if (Array.isArray(p)) { for (let k = 0; k < p.length; k += 2) { const cnt = p[k + 1] == null ? 1 : p[k + 1]; for (let n = 0; n < cnt; n++) eatProp(p[k]); } }
+        else eatProp(p);
+        clearCell(f, i);
+      });
       return;
     }
     const line = info.talk ? info.talk[Math.min(st.step, info.talk.length - 1)] : "";
@@ -494,18 +499,32 @@ function npcInteract(i) {
     if (v && v.propGold != null && !st.traded) {
       const cost = v.propGold < 0 ? -v.propGold : 0;
       const sell = v.propGold > 0;
-      rewardDialog(info.talk[0] + (sell ? "\n（卖出 " + DATA.items[v.prop] + "，获得 " + v.propGold + " 金币）" : "\n（花费 " + cost + " 金币购买 " + DATA.items[v.prop] + "）"), name, () => {
-        if (sell) { if (propNum(v.prop) <= 0) { log("你没有 " + DATA.items[v.prop].name); return; } addProp(v.prop, v.count || -1); S.gold += v.propGold; }
-        else { if (S.gold < cost) { log("金币不足！"); return; } S.gold -= cost; addProp(v.prop, v.count || 1); }
+      const pairs = Array.isArray(v.prop) ? v.prop : (v.prop != null ? [v.prop, 1] : []);
+      const desc = []; for (let k = 0; k < pairs.length; k += 2) { const it = DATA.items[pairs[k]]; desc.push((it ? it.name : "?") + "×" + Math.abs(pairs[k + 1] == null ? 1 : pairs[k + 1])); }
+      const gainHp = v.hp != null ? v.hp : 0;
+      const head = info.talk && info.talk[0] ? info.talk[0] : "";
+      const tail = sell ? "\n（卖出 " + desc.join("、") + "，获得 " + v.propGold + " 金币）" : "\n（花费 " + cost + " 金币购买 " + desc.join("、") + (gainHp ? "，生命 +" + gainHp : "") + "）";
+      rewardDialog(head + tail, name, () => {
+        if (sell) {
+          for (let k = 0; k < pairs.length; k += 2) { const cnt = pairs[k + 1] == null ? -1 : pairs[k + 1]; if (cnt < 0 && propNum(pairs[k]) < -cnt) { const it = DATA.items[pairs[k]]; log("你没有足够的 " + (it ? it.name : pairs[k])); return; } }
+          for (let k = 0; k < pairs.length; k += 2) addProp(pairs[k], pairs[k + 1] == null ? -1 : pairs[k + 1]);
+          S.gold += v.propGold;
+        } else {
+          if (S.gold < cost) { log("金币不足！"); return; }
+          S.gold -= cost;
+          for (let k = 0; k < pairs.length; k += 2) addProp(pairs[k], pairs[k + 1] == null ? 1 : pairs[k + 1]);
+          if (gainHp) S.hp += gainHp;
+        }
         if (!v.unlimit) { st.traded = 1; if (info.talk && info.talk[1]) { queueDialog([info.talk[1]], name, () => clearCell(f, i)); } else clearCell(f, i); }
         renderAll();
       });
       return;
     }
-    if (v && v.hp != null) {
-      rewardDialog(info.talk[0] + "\n（花费 " + (-v.hp) + " 金币，生命 +" + 2000 + "）", name, () => {
-        if (S.gold < -v.hp) { log("金币不足！"); return; }
-        S.gold += v.hp; S.hp += 2000;
+    if (v && v.hp != null && v.propGold == null) {
+      const cost = -v.hp;
+      rewardDialog((info.talk && info.talk[0] ? info.talk[0] : "") + "\n（花费 " + cost + " 金币，生命 +" + v.hp + "）", name, () => {
+        if (S.gold < cost) { log("金币不足！"); return; }
+        S.gold -= cost; S.hp += v.hp;
         if (!v.unlimit) { if (info.talk && info.talk[1]) queueDialog([info.talk[1]], name, () => clearCell(f, i)); else clearCell(f, i); }
         renderAll();
       });
@@ -966,14 +985,26 @@ log("欢迎来到魔塔。救出公主并击败魔王吧！", 1);
     const CAP = 9, K = 12; // 钥匙余额上限与每格前沿容量：防止来回踩钥匙导致标签爆炸
     const front = new Map(), all = [], h = [];
     let uid = 0;
-    const push = (f, i, d, b1, b2, b3, o1, o2, o3) => {
+    // 每层钥匙格 -> 位掩码：label 携带本层已拾取钥匙集合，杜绝反复踩同一格刷余额
+    const keyBit = {};
+    for (let ff = 1; ff <= 50; ff++) {
+      const cs = cellsOf(ff), map = {}; let idx = 0;
+      for (let j = 0; j < cs.length; j++) {
+        const c = cs[j]; if (!c || c.k !== "prop" || c.hide || !keyColorOfProp(c.id)) continue;
+        if (idx < 30) map[j] = 1 << idx;
+        idx++;
+      }
+      keyBit[ff] = map;
+    }
+    const push = (f, i, d, b1, b2, b3, o1, o2, o3, km) => {
       if (d >= hpMax || all.length > 400000) return;
       if (b1 > CAP) b1 = CAP; if (b2 > CAP) b2 = CAP; if (b3 > CAP) b3 = CAP;
+      km = km | 0;
       const sid = f * NN + i;
       let arr = front.get(sid); if (!arr) { arr = []; front.set(sid, arr); }
-      for (const M of arr) if (M.alive && M.d <= d && M.b1 >= b1 && M.b2 >= b2 && M.b3 >= b3) return;
-      for (const M of arr) if (d <= M.d && b1 >= M.b1 && b2 >= M.b2 && b3 >= M.b3) M.alive = false;
-      const L = { f, i, d, b1, b2, b3, o1, o2, o3, id: uid++, alive: true };
+      for (const M of arr) if (M.alive && M.d <= d && M.b1 >= b1 && M.b2 >= b2 && M.b3 >= b3 && (M.km & ~km) === 0) return;
+      for (const M of arr) if (d <= M.d && b1 >= M.b1 && b2 >= M.b2 && b3 >= M.b3 && (km & ~M.km) === 0) M.alive = false;
+      const L = { f, i, d, b1, b2, b3, o1, o2, o3, km, id: uid++, alive: true };
       arr.push(L); all.push(L); hp_(h, [d + 0.001 * (o1 + o2 + o3), L.id, 0]);
       if (arr.length > 3 * K) { const keep = arr.filter(M => M.alive); arr.length = 0; for (const M of keep) arr.push(M); }
       if (arr.length > K) {
@@ -982,7 +1013,7 @@ log("欢迎来到魔塔。救出公主并击败魔王吧！", 1);
         if (w) w.alive = false;
       }
     };
-    push(f0, i0, 0, keys0[1], keys0[2], keys0[3], 0, 0, 0);
+    push(f0, i0, 0, keys0[1], keys0[2], keys0[3], 0, 0, 0, 0);
     let goal = null;
     while (h.length) {
       const [, id] = hpop(h); const L = all[id]; if (!L || !L.alive) continue;
@@ -993,12 +1024,12 @@ log("欢迎来到魔塔。救出公主并击败魔王吧！", 1);
           const up = !!c.up, info = up ? DATA.stairs[f].up : DATA.stairs[f].down;
           if (info && info.diff) { const t = f + info.diff;
             if (t >= 1 && t <= 50) { const ts = DATA.stairs[t]; const land = up ? (ts.down && ts.down.stand) : (ts.up && ts.up.stand);
-              if (land != null && land >= 0 && !guardTrap(t, land)) push(t, land, d + wizardDmg(t, land), L.b1, L.b2, L.b3, L.o1, L.o2, L.o3); } }
+              if (land != null && land >= 0 && !guardTrap(t, land)) push(t, land, d + wizardDmg(t, land), L.b1, L.b2, L.b3, L.o1, L.o2, L.o3, 0); } }
         }
       }
       for (const dd of DIRS) {
         if (!okN(i, dd)) continue; const j = i + dd; const nc = cs[j];
-        let cost = 0, b1 = L.b1, b2 = L.b2, b3 = L.b3, o1 = L.o1, o2 = L.o2, o3 = L.o3;
+        let cost = 0, b1 = L.b1, b2 = L.b2, b3 = L.b3, o1 = L.o1, o2 = L.o2, o3 = L.o3, km = L.km | 0;
         if (!nc) { cost = wizardDmg(f, j); if (guardTrap(f, j)) continue; }
         else switch (nc.k) {
           case "wall": if (!nc.hidden) continue; cost = wizardDmg(f, j); if (guardTrap(f, j)) continue; break; // 暗墙可撞开，踩上去仍受溅射
@@ -1014,17 +1045,23 @@ log("欢迎来到魔塔。救出公主并击败魔王吧！", 1);
             if (nc.ds === "h") continue;
             if (doorFree(f, nc, dead)) break;
             if (nc.opens && nc.opens.length) { cost = killGroupCost(f, cs, nc.opens, d, hpMax, dead); if (cost === Infinity) continue; break; }
-            if (nc.id >= 1004) break; // 事件怪物门：静态不可建模，按可开处理
+            if (nc.id === 1006) { if (nc.ds === "p") continue; break; } // 墙门：撞上即开；"p" 为事件控制，不可开
+            if (nc.id >= 1004) { // 事件怪物门：仅当本层存在守门怪组且全灭时才可通行
+              const grp = doorMonGroups[j]; let ok = false;
+              if (grp) for (const g of grp) { if (!g.every(k => cs[k] && cs[k].k === "mon")) continue; if (g.every(k => dead[f] && dead[f][k])) { ok = true; break; } }
+              if (!ok) continue;
+              break;
+            }
             const kid = doorKey[nc.id]; if (!kid) continue;
             const bal = kid === 1 ? b1 : kid === 2 ? b2 : b3;
             if (bal < 1) continue;
             if (kid === 1) { b1--; o1++; } else if (kid === 2) { b2--; o2++; } else { b3--; o3++; }
             break;
           }
-          case "prop": { cost = wizardDmg(f, j); if (guardTrap(f, j)) continue; if (!nc.hide) { const kc = keyColorOfProp(nc.id); if (kc === 1) b1++; else if (kc === 2) b2++; else if (kc === 3) b3++; } break; }
+          case "prop": { cost = wizardDmg(f, j); if (guardTrap(f, j)) continue; if (!nc.hide) { const bit = keyBit[f][j]; if (bit && !(km & bit)) { const kc = keyColorOfProp(nc.id); if (kc === 1) b1++; else if (kc === 2) b2++; else if (kc === 3) b3++; km |= bit; } } break; }
           default: cost = wizardDmg(f, j); if (guardTrap(f, j)) continue; break; // 商店/NPC/事件/楼梯格落脚同样受溅射
         }
-        push(f, j, d + cost, b1, b2, b3, o1, o2, o3);
+        push(f, j, d + cost, b1, b2, b3, o1, o2, o3, km);
       }
     }
     return singleFloor ? goal : front;
