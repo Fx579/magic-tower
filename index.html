@@ -156,6 +156,22 @@ function cellsOf(f) { if (!S.cells[f]) S.cells[f] = buildFloor(f); return S.cell
 function cell(f, i) { return cellsOf(f)[i]; }
 function setCell(f, i, c) { cellsOf(f)[i] = c; }
 function clearCell(f, i) { const c = cell(f, i); setCell(f, i, c && c.ev ? { k: "ev", id: c.ev } : null); }
+/* 修复存档：底图楼梯格被事件/NPC移动误清时恢复（含NPC正站在楼梯上的情况，记录垫底格子） */
+function repairStairs() {
+  if (!S || !S.cells) return;
+  for (const f in S.cells) {
+    const rows = DATA.floors[f]; if (!rows) continue;
+    const cs = S.cells[f]; if (!cs) continue;
+    for (let i = 0; i < N * N; i++) {
+      const ch = rows[(i / N) | 0][i % N];
+      if (ch !== "U" && ch !== "V" && ch !== "u" && ch !== "v") continue;
+      const st = { k: "stair", up: ch === "U" || ch === "u" ? 1 : 0 };
+      if (ch === "u" || ch === "v") st.hide = 1;
+      if (!cs[i]) cs[i] = st;
+      else if (cs[i].k === "npc" && !cs[i].under) cs[i].under = st;
+    }
+  }
+}
 
 /* ---------- 状态 ---------- */
 let S;
@@ -437,8 +453,14 @@ function npcInteract(i) {
       if (info.wall && info.wall[st.step] != null) setCell(f, info.wall[st.step], null);
       if (info.move) {
         const mv = info.move[st.step];
-        if (mv != null) { setCell(f, mv, c); setCell(f, i, null); st.step++; }
-        else { clearCell(f, i); }
+        if (mv != null) {
+          const prevUnder = c.under || null;
+          const dest = cell(f, mv);
+          c.under = dest && dest.k === "stair" ? dest : null;
+          setCell(f, mv, c); setCell(f, i, prevUnder);
+          st.step++;
+        }
+        else { const back = c.under; clearCell(f, i); if (back) setCell(f, i, back); }
         if (info.event && !st.noEvent) { st.noEvent = 1; runEvent(info.event); }
       } else if (info.event && !st.noEvent) { st.noEvent = 1; runEvent(info.event); }
       renderAll();
@@ -856,7 +878,7 @@ cv.addEventListener("click", e => {
 $("#btnManual").onclick = () => { renderManual(); $("#manualModal").classList.add("show"); };
 $("#btnManualClose").onclick = () => $("#manualModal").classList.remove("show");
 $("#btnSave").onclick = () => { localStorage.setItem("mt3_save", JSON.stringify(S)); log("已保存"); };
-$("#btnLoad").onclick = () => { const d = localStorage.getItem("mt3_save"); if (d) { S = JSON.parse(d); renderAll(); log("已读取"); } };
+$("#btnLoad").onclick = () => { const d = localStorage.getItem("mt3_save"); if (d) { S = JSON.parse(d); repairStairs(); renderAll(); log("已读取"); } };
 $("#btnRestart").onclick = () => { if (confirm("确定重新开始？")) newGame(); };
 $("#btnOv").onclick = () => { $("#overlay").classList.remove("show"); newGame(); };
 
