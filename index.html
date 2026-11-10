@@ -319,11 +319,13 @@ function switchLevel(diff, viaFeather) {
   const stand = diff > 0 ? (st.down ? st.down.stand : -1) : (st.up ? st.up.stand : -1);
   if (stand >= 0) { const [x, y] = XY(stand); S.x = x; S.y = y; }
   triggerLevelEvent(t);
+  damageCollision(heroIdx()); // 落点若紧邻巫师也受魔法攻击
   return true;
 }
 function jumpLevel(lv, x, y) {
   S.visited[lv] = 1; S.floor = lv; S.x = x; S.y = y;
   triggerLevelEvent(lv);
+  damageCollision(heroIdx());
 }
 function triggerLevelEvent(lv) {
   const ev = S.levelEv[lv];
@@ -583,17 +585,17 @@ function collide(i) {
   switch (c.k) {
     case "wall": if (c.hidden) { setCell(f, i, null); log("你撞开了一面暗墙"); } renderAll(); return;
     case "lava": log("熔岩无法通过（可用冰冻徽章）"); return;
-    case "prop": if (c.hide) { stand(); renderAll(); return; } eatProp(c.id); clearCell(f, i); stand(); renderAll(); return;
-    case "shop": stand(); renderAll(); openShop(); return;
+    case "prop": if (c.hide) { stand(); damageCollision(i); renderAll(); return; } eatProp(c.id); clearCell(f, i); stand(); damageCollision(i); renderAll(); return;
+    case "shop": stand(); damageCollision(i); renderAll(); openShop(); return;
     case "stair": {
       stand();
       const diff = c.up ? DATA.stairs[f].up.diff : DATA.stairs[f].down.diff;
       if (switchLevel(diff, false)) { renderAll(); }
       return;
     }
-    case "mon": if (c.hide) { stand(); renderAll(); return; } fight(i); return;
-    case "npc": if (c.hide) { stand(); renderAll(); return; } npcInteract(i); return;
-    case "ev": { const id = c.id; stand(); runEvent(id); return; }
+    case "mon": if (c.hide) { stand(); damageCollision(i); renderAll(); return; } fight(i); return;
+    case "npc": if (c.hide) { stand(); damageCollision(i); renderAll(); return; } npcInteract(i); return;
+    case "ev": { const id = c.id; stand(); damageCollision(i); runEvent(id); return; }
     case "door": doorCollision(i, c); return;
   }
 }
@@ -678,7 +680,7 @@ function useProp(id) {
       if (c && c.k === "stair") {
         const diff = c.up ? DATA.stairs[f].up.diff : DATA.stairs[f].down.diff;
         const t = f + diff;
-        if (t >= 1 && t <= 50 && S.visited[t]) { addProp(20, -1); switchLevel(diff, false); log("飞行魔杖 → " + t + "F"); renderAll(); return; }
+        if (t >= 1 && t <= 50 && S.visited[t] && t !== 44) { addProp(20, -1); switchLevel(diff, false); log("飞行魔杖 → " + t + "F"); renderAll(); return; }
       }
     }
     log("飞行魔杖需站在楼梯旁，且只能去已到过的楼层"); return;
@@ -729,7 +731,7 @@ function useProp(id) {
 /* ---------- 结束 ---------- */
 function gameOver(win) {
   S.over = true;
-  $("#ovTitle").textContent = win ? "🏆 胜利！" : "💀 死亡";
+  $("#ovTitle").textContent = win ? "? 胜利！" : "? 死亡";
   $("#ovText").textContent = win ? "你击败了魔王，拯救了公主！" : "英雄倒在了第 " + S.floor + " 层…";
   $("#overlay").classList.add("show");
 }
@@ -805,7 +807,7 @@ function draw() {
 function renderPanels() {
   $("#floorLabel").textContent = S.floor + "F";
   const rows = [
-    ["❤", "生命", S.hp, "v-hp"], ["⚔", "攻击", S.atk, "v-atk"], ["🛡", "防御", S.def, "v-def"], ["🪙", "金币", S.gold, "v-gold"]
+    ["?", "生命", S.hp, "v-hp"], ["?", "攻击", S.atk, "v-atk"], ["?", "防御", S.def, "v-def"], ["?", "金币", S.gold, "v-gold"]
   ];
   $("#stats").innerHTML = rows.map(r => '<div class="srow"><span class="ic">' + r[0] + '</span><span>' + r[1] + '</span><b class="' + r[3] + '">' + r[2] + '</b></div>').join("");
   const sw = S.swordId ? DATA.items[S.swordId].name : "无", sh = S.shieldId ? DATA.items[S.shieldId].name : "无";
@@ -957,7 +959,7 @@ log("欢迎来到魔塔。救出公主并击败魔王吧！", 1);
   }
   /* 资源感知 Dijkstra：标签=(损血d, 钥匙余额b, 耗钥o)，每格维护 Pareto 前沿
      - 怪物格可通行：踩上即战斗，损血计入 d（需可胜且血量始终>0），解决"绕不开挡路怪"
-     - 彩色门：余额≥1 才可开，开一扇余额−1；沿途钥匙道具自动拾取使余额+1，
+     - 彩色门：余额≥1 才可开，开一扇余额?1；沿途钥匙道具自动拾取使余额+1，
        即"先捡到的钥匙才能开前面的门"，杜绝用全局预算虚增可达性
      - singleFloor=true：只在当前层找上楼梯（逃生/卡关校验用），返回首个到楼梯标签 */
   function resSearch(f0, i0, keys0, dead, singleFloor, hpMax) {
@@ -991,7 +993,7 @@ log("欢迎来到魔塔。救出公主并击败魔王吧！", 1);
           const up = !!c.up, info = up ? DATA.stairs[f].up : DATA.stairs[f].down;
           if (info && info.diff) { const t = f + info.diff;
             if (t >= 1 && t <= 50) { const ts = DATA.stairs[t]; const land = up ? (ts.down && ts.down.stand) : (ts.up && ts.up.stand);
-              if (land != null && land >= 0) push(t, land, d, L.b1, L.b2, L.b3, L.o1, L.o2, L.o3); } }
+              if (land != null && land >= 0 && !guardTrap(t, land)) push(t, land, d + wizardDmg(t, land), L.b1, L.b2, L.b3, L.o1, L.o2, L.o3); } }
         }
       }
       for (const dd of DIRS) {
@@ -999,7 +1001,7 @@ log("欢迎来到魔塔。救出公主并击败魔王吧！", 1);
         let cost = 0, b1 = L.b1, b2 = L.b2, b3 = L.b3, o1 = L.o1, o2 = L.o2, o3 = L.o3;
         if (!nc) { cost = wizardDmg(f, j); if (guardTrap(f, j)) continue; }
         else switch (nc.k) {
-          case "wall": if (!nc.hidden) continue; break; // 暗墙可撞开，视为可通行
+          case "wall": if (!nc.hidden) continue; cost = wizardDmg(f, j); if (guardTrap(f, j)) continue; break; // 暗墙可撞开，踩上去仍受溅射
           case "mon": {
             if (nc.hide || (dead[f] && dead[f][j])) { cost = wizardDmg(f, j); if (guardTrap(f, j)) continue; break; }
             const m = monStats(f, j); if (!m) continue;
@@ -1019,8 +1021,8 @@ log("欢迎来到魔塔。救出公主并击败魔王吧！", 1);
             if (kid === 1) { b1--; o1++; } else if (kid === 2) { b2--; o2++; } else { b3--; o3++; }
             break;
           }
-          case "prop": if (!nc.hide) { const kc = keyColorOfProp(nc.id); if (kc === 1) b1++; else if (kc === 2) b2++; else if (kc === 3) b3++; } break;
-          default: break;
+          case "prop": { cost = wizardDmg(f, j); if (guardTrap(f, j)) continue; if (!nc.hide) { const kc = keyColorOfProp(nc.id); if (kc === 1) b1++; else if (kc === 2) b2++; else if (kc === 3) b3++; } break; }
+          default: cost = wizardDmg(f, j); if (guardTrap(f, j)) continue; break; // 商店/NPC/事件/楼梯格落脚同样受溅射
         }
         push(f, j, d + cost, b1, b2, b3, o1, o2, o3);
       }
@@ -1102,7 +1104,7 @@ log("欢迎来到魔塔。救出公主并击败魔王吧！", 1);
     list.innerHTML = top.map(c => {
       const [x, y] = XY(c.monI);
       const keys = [1, 2, 3].filter(k => c.keys[k] > 0).map(k => kn[k] + "×" + c.keys[k]).join(" ") || "无";
-      const warn = c.warn ? '<div><span class="hw">⚠ 卡关风险：' + c.warn.floor + 'F 起可能无法继续推进</span></div>' : "";
+      const warn = c.warn ? '<div><span class="hw">? 卡关风险：' + c.warn.floor + 'F 起可能无法继续推进</span></div>' : "";
       return '<div class="hint-item" data-f="' + c.f + '" data-i="' + c.monI + '">' +
         '<div><span class="hn">' + c.name + '</span> <span class="hd">' + c.f + 'F · 第' + (y + 1) + '行第' + (x + 1) + '列</span></div>' +
         '<div class="hd">预计损血 <b style="color:var(--red)">' + c.total + '</b>（含沿途强制战斗 ' + c.pathD + ' + 目标 ' + c.battle + '）</div>' +
